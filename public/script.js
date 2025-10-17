@@ -130,16 +130,26 @@
     cell.addEventListener('click', (ev) => {
       // не реагируем на клики по ссылке
       if (ev.target && (ev.target.closest && ev.target.closest('a'))) return;
-      // если цвет не выбран или нет ключа ссылки — ничего не делаем
-      if (!state.selectedColor || !linkKey) return;
+      // если нет ключа ссылки — ничего не делаем
+      if (!linkKey) return;
 
       const current = state.cellColors[linkKey];
-      if (current === state.selectedColor) {
-        delete state.cellColors[linkKey];
-        cell.style.background = '';
+      
+      if (state.selectedColor) {
+        // есть выбранный цвет — применяем/снимаем его
+        if (current === state.selectedColor) {
+          delete state.cellColors[linkKey];
+          cell.style.background = '';
+        } else {
+          state.cellColors[linkKey] = state.selectedColor;
+          cell.style.background = state.selectedColor;
+        }
       } else {
-        state.cellColors[linkKey] = state.selectedColor;
-        cell.style.background = state.selectedColor;
+        // нет выбранного цвета — снимаем любой существующий цвет
+        if (current) {
+          delete state.cellColors[linkKey];
+          cell.style.background = '';
+        }
       }
       saveCellColors();
     });
@@ -274,7 +284,17 @@
       if (!rawTitle || link === '#' || isNaN(pubDate.getTime())) continue;
       items.push({ title: rawTitle, link, pubDate });
     }
-    const filtered = items.filter(i => isSameDayInOffset(i.pubDate, tzOffsetMin, todayParts));
+    // Дедупликация по ссылке
+    const uniqueItems = [];
+    const seenLinks = new Set();
+    for (const item of items) {
+      if (!seenLinks.has(item.link)) {
+        seenLinks.add(item.link);
+        uniqueItems.push(item);
+      }
+    }
+    
+    const filtered = uniqueItems.filter(i => isSameDayInOffset(i.pubDate, tzOffsetMin, todayParts));
     filtered.sort((a, b) => b.pubDate - a.pubDate);
     return filtered;
   }
