@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="googlebot" content="noindex, nofollow">
+    <title>Сводка новостей — Сегодня</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__left">
+        <h1 class="title">Сводка новостей — <span id="current-date"></span></h1>
+      </div>
+      <div class="topbar__right">
+        <label for="timezone-select">Часовой пояс:</label>
+        <select id="timezone-select" aria-label="Выбор часового пояса"></select>
+        <button id="refresh-btn" type="button">Обновить</button>
+      </div>
+    </header>
+    <main class="main">
+      <div class="table-wrapper" id="table-wrapper">
+        <table class="news-table" id="news-table" aria-live="polite">
+          <thead>
+            <tr id="table-head-row"></tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+        <div id="sentinel" class="sentinel" aria-hidden="true"></div>
+      </div>
+      <aside class="palette" aria-label="Палитра цветов">
+        <div class="palette__header">
+          <span></span>
+          <button id="palette-clear" type="button" title="Сброс выбора">×</button>
+        </div>
+        <div id="palette-colors" class="palette__colors"></div>
+      </aside>
+    </main>
+    <template id="news-cell-template">
+      <td class="news-cell">
+        <div class="news-item">
+          <a class="news-title" target="_blank" rel="noopener noreferrer"></a>
+          <div class="news-time"></div>
+        </div>
+      </td>
+    </template>
+    <script src="./script.js" defer></script>
+  </body>
+</html>
