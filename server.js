@@ -7,6 +7,11 @@ const PORT = process.env.PORT || 3000;
 // Раздача статических файлов (index.html, styles.css, script.js)
 app.use(express.static(__dirname));
 
+// Явный маршрут для главной страницы
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/index.html');
+});
+
 // Прокси для CORS
 app.get('/proxy', async (req, res) => {
   const url = req.query.url;
