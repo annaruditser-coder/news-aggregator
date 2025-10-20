@@ -2,8 +2,9 @@
   const SOURCES = [
     { id: 'chita', name: 'Chita.ru', url: 'https://www.chita.ru/rss-feeds/zen-news.xml' },
     { id: 'zabmedia', name: 'Забмедиа', url: 'https://zab.ru/rss/index.php' },
-    { id: 'zabrab', name: 'Забрабочий', url: 'https://zabrab75.ru/news/' },
     { id: 'zabnews', name: 'ZabNews', url: 'https://zabnews.ru/YandexRss.rss' },
+    { id: 'mkchita', name: 'МК Чита', url: 'https://www.mkchita.ru/news/' },
+    { id: 'chitamedia', name: 'ЧитаМедиа', url: 'https://chitamedia.su/export/new/news81.rss' },
   ];
 
   const STORAGE_KEYS = { tzOffsetMin: 'newsTimeOffsetMin', cellColors: 'cellColors' };
@@ -238,8 +239,8 @@
   }
 
   async function loadSource(src, tzOffsetMin, todayParts) {
-    if (src.id === 'zabrab') {
-      return await loadZabrabSource(src, tzOffsetMin, todayParts);
+    if (src.id === 'mkchita') {
+      return await loadMkchitaSource(src, tzOffsetMin, todayParts);
     } else {
       const xmlText = await fetchWithCorsFallback(src.url);
       const parsed = parseRss(xmlText);
@@ -252,6 +253,95 @@
       filtered.sort((a, b) => b.pubDate - a.pubDate);
       return filtered;
     }
+  }
+
+  async function loadMkchitaSource(src, tzOffsetMin, todayParts) {
+    const htmlText = await fetchWithCorsFallback(src.url);
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
+
+    const groups = Array.from(doc.querySelectorAll('.news-listing__day-group'));
+    const items = [];
+
+    const now = nowInOffset(tzOffsetMin);
+    const currentYear = now.getUTCFullYear();
+
+    for (const group of groups) {
+      const dateEl = group.querySelector('.news-listing__day-date');
+      if (!dateEl) continue;
+      const dateText = (dateEl.textContent || '').trim();
+      const dateParts = parseRuDate(dateText, currentYear);
+      if (!dateParts) continue;
+
+      const articles = Array.from(group.querySelectorAll('li.news-listing__item'));
+      for (const article of articles) {
+        const linkEl = article.querySelector('a.news-listing__item-link');
+        const timeEl = article.querySelector('span.news-listing__item-time');
+        const titleEl = article.querySelector('h3.news-listing__item-title');
+        if (!linkEl || !timeEl || !titleEl) continue;
+
+        const rawHref = linkEl.getAttribute('href') || '';
+        const link = (() => { try { const u = new URL(rawHref, src.url); u.hash=''; return u.href; } catch { return '#'; } })();
+        const rawTitle = (titleEl.textContent || '').trim();
+        const timeText = (timeEl.textContent || '').trim();
+        const tm = timeText.match(/^(\d{1,2}):(\d{2})$/);
+        if (!tm) continue;
+        const hh = Number(tm[1]);
+        const mm = Number(tm[2]);
+
+        // Локальное время сайта = Чита (UTC+9). Переводим в UTC, вычитая 9 часов
+        const utcMs = Date.UTC(
+          dateParts.y,
+          dateParts.m - 1,
+          dateParts.d,
+          hh - 9,
+          mm,
+          0
+        );
+        const pubDate = new Date(utcMs);
+        if (!rawTitle || link === '#' || isNaN(pubDate.getTime())) continue;
+        items.push({ title: rawTitle, link, pubDate });
+      }
+    }
+
+    // Дедупликация по ссылке
+    const uniqueItems = [];
+    const seenLinks = new Set();
+    for (const item of items) {
+      if (!seenLinks.has(item.link)) {
+        seenLinks.add(item.link);
+        uniqueItems.push(item);
+      }
+    }
+
+    const filtered = uniqueItems.filter(i => isSameDayInOffset(i.pubDate, tzOffsetMin, todayParts));
+    filtered.sort((a, b) => b.pubDate - a.pubDate);
+    return filtered;
+  }
+
+  function parseRuDate(text, fallbackYear) {
+    const t = text.toLowerCase().replace(/\s+/g, ' ').trim();
+    // Пробуем dd.mm.yyyy или dd.mm
+    let m = t.match(/^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?/);
+    if (m) {
+      const d = Number(m[1]);
+      const mo = Number(m[2]);
+      const y = m[3] ? Number(m[3].length === 2 ? ('20' + m[3]) : m[3]) : fallbackYear;
+      if (d && mo) return { y, m: mo, d };
+    }
+    // Пробуем "20 октября 2025" или "20 октября"
+    const months = {
+      'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
+      'июля': 7, 'августа': 8, 'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12
+    };
+    m = t.match(/^(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?/);
+    if (m) {
+      const d = Number(m[1]);
+      const mo = months[m[2]];
+      const y = m[3] ? Number(m[3]) : fallbackYear;
+      if (d && mo) return { y, m: mo, d };
+    }
+    return null;
   }
 
   async function loadZabrabSource(src, tzOffsetMin, todayParts) {

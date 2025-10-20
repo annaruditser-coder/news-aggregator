@@ -19,11 +19,11 @@ button:hover { border-color: var(--accent); cursor: pointer; }
 
 .main { display: grid; grid-template-columns: 1fr 56px; gap: 8px; align-items: start; }
 .table-wrapper { padding: 12px 16px; }
-.news-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow); position: relative; }
+.news-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow); position: relative; table-layout: fixed; }
 /* отключаем прилипающую шапку, чтобы первая строка всегда была полностью видна */
 .news-table thead { position: static; background: var(--bg); }
 .news-table thead th { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-weight: 600; }
-.news-table tbody td { vertical-align: top; border-bottom: 1px solid #eef2f6; padding: 12px; width: 25%; background-clip: padding-box; }
+.news-table tbody td { vertical-align: top; border-bottom: 1px solid #eef2f6; padding: 12px; background-clip: padding-box; }
 .news-item { display: flex; flex-direction: column; gap: 6px; }
 .news-title { color: #0f172a; text-decoration: none; }
 .news-title:hover { color: var(--accent); text-decoration: underline; }
