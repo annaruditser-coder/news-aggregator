@@ -21,7 +21,12 @@
     </header>
     <main class="main">
       <div class="table-wrapper" id="table-wrapper">
-        <table class="news-table" id="news-table" aria-live="polite">
+        <div id="loading-indicator" class="loading-indicator" aria-live="polite">
+          <div class="loading-spinner"></div>
+          <p>Загрузка новостей...</p>
+        </div>
+        <div id="error-message" class="error-message" aria-live="assertive" style="display: none;"></div>
+        <table class="news-table" id="news-table" aria-live="polite" style="display: none;">
           <thead>
             <tr id="table-head-row"></tr>
           </thead>

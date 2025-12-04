@@ -19,6 +19,9 @@
     cellTpl: /** @type {HTMLTemplateElement} */ (document.getElementById('news-cell-template')),
     paletteColors: document.getElementById('palette-colors'),
     paletteClear: document.getElementById('palette-clear'),
+    loadingIndicator: document.getElementById('loading-indicator'),
+    errorMessage: document.getElementById('error-message'),
+    newsTable: document.getElementById('news-table'),
   };
 
   let state = {
@@ -74,29 +77,58 @@
   renderTableHead();
   buildPalette();
   attachEvents();
-  loadAllSources().then(() => {
-    resetTableBody();
-    renderNextBatch(true);
-    setupInfiniteScroll();
-  });
+  showLoading();
+  loadAllSources()
+    .then(() => {
+      hideLoading();
+      hideError();
+      resetTableBody();
+      renderNextBatch(true);
+      setupInfiniteScroll();
+    })
+    .catch((err) => {
+      hideLoading();
+      showError('Не удалось загрузить новости. Попробуйте обновить страницу.');
+      console.error('Ошибка загрузки новостей:', err);
+    });
 
   function attachEvents() {
     dom.tzSelect.addEventListener('change', () => {
       state.tzOffsetMin = Number(dom.tzSelect.value);
       saveTzOffset(state.tzOffsetMin);
       updateHeaderDate();
-      loadAllSources().then(() => {
-        resetTableBody();
-        renderNextBatch(true);
-      });
+      showLoading();
+      hideError();
+      loadAllSources()
+        .then(() => {
+          hideLoading();
+          resetTableBody();
+          renderNextBatch(true);
+        })
+        .catch((err) => {
+          hideLoading();
+          showError('Не удалось загрузить новости. Попробуйте еще раз.');
+          console.error('Ошибка загрузки новостей:', err);
+        });
     });
     dom.refreshBtn.addEventListener('click', () => {
       dom.refreshBtn.disabled = true;
-      loadAllSources().finally(() => {
-        resetTableBody();
-        renderNextBatch(true);
-        dom.refreshBtn.disabled = false;
-      });
+      showLoading();
+      hideError();
+      loadAllSources()
+        .then(() => {
+          hideLoading();
+          resetTableBody();
+          renderNextBatch(true);
+        })
+        .catch((err) => {
+          hideLoading();
+          showError('Не удалось загрузить новости. Попробуйте еще раз.');
+          console.error('Ошибка загрузки новостей:', err);
+        })
+        .finally(() => {
+          dom.refreshBtn.disabled = false;
+        });
     });
     dom.paletteClear?.addEventListener('click', () => {
       state.selectedColor = null;
@@ -239,19 +271,25 @@
   }
 
   async function loadSource(src, tzOffsetMin, todayParts) {
-    if (src.id === 'mkchita') {
-      return await loadMkchitaSource(src, tzOffsetMin, todayParts);
-    } else {
-      const xmlText = await fetchWithCorsFallback(src.url);
-      const parsed = parseRss(xmlText);
-      const items = parsed.items.map(i => ({
-        title: i.title || '',
-        link: i.link || '#',
-        pubDate: i.pubDate ? new Date(i.pubDate) : null,
-      })).filter(i => i.title && i.link && i.pubDate);
-      const filtered = items.filter(i => isSameDayInOffset(i.pubDate, tzOffsetMin, todayParts));
-      filtered.sort((a, b) => b.pubDate - a.pubDate);
-      return filtered;
+    try {
+      if (src.id === 'mkchita') {
+        return await loadMkchitaSource(src, tzOffsetMin, todayParts);
+      } else {
+        const xmlText = await fetchWithCorsFallback(src.url);
+        const parsed = parseRss(xmlText);
+        const items = parsed.items.map(i => ({
+          title: i.title || '',
+          link: i.link || '#',
+          pubDate: i.pubDate ? new Date(i.pubDate) : null,
+        })).filter(i => i.title && i.link && i.pubDate);
+        const filtered = items.filter(i => isSameDayInOffset(i.pubDate, tzOffsetMin, todayParts));
+        filtered.sort((a, b) => b.pubDate - a.pubDate);
+        return filtered;
+      }
+    } catch (err) {
+      // Если не удалось загрузить источник, возвращаем пустой массив вместо падения
+      console.warn(`Не удалось загрузить источник ${src.name}:`, err);
+      return [];
     }
   }
 
@@ -259,6 +297,10 @@
     const htmlText = await fetchWithCorsFallback(src.url);
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlText, 'text/html');
+    // Проверяем, что получили валидный HTML (не страницу с ошибкой)
+    if (!doc.body || doc.body.children.length === 0) {
+      return [];
+    }
 
     const groups = Array.from(doc.querySelectorAll('.news-listing__day-group'));
     const items = [];
@@ -389,25 +431,71 @@
     return filtered;
   }
 
-  async function fetchWithCorsFallback(url) {
-    try {
-      const r = await fetch(`/proxy?url=${encodeURIComponent(url)}`, { cache: 'no-store' });
-      if (r.ok) return await r.text();
-    } catch {}
+  async function fetchWithCorsFallback(url, retries = 2) {
+    // Сначала пробуем через наш прокси с таймаутом
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 секунд таймаут
+        const r = await fetch(`/proxy?url=${encodeURIComponent(url)}`, { 
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (r.ok) {
+          const text = await r.text();
+          // Проверяем, что получили валидный контент (не HTML страницу с ошибкой)
+          if (text && text.trim().length > 0) {
+            return text;
+          }
+        }
+        // Если не OK или пустой ответ, пробуем другие методы только на последней попытке
+        if (attempt === retries) break;
+        // Ждем перед повторной попыткой (экспоненциальная задержка)
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      } catch (err) {
+        // Если это не последняя попытка, ждем и пробуем снова
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          continue;
+        }
+        // На последней попытке пробуем альтернативные методы
+        break;
+      }
+    }
+    
+    // Если все попытки через прокси неудачны, пробуем прямые запросы
     try {
       const r = await fetch(url, { cache: 'no-store' });
-      if (r.ok) return await r.text();
+      if (r.ok) {
+        const text = await r.text();
+        if (text && text.trim().length > 0) return text;
+      }
     } catch {}
+    
+    // Пробуем публичные прокси
     for (const wrap of PUBLIC_PROXIES) {
       const proxied = wrap(url);
-      try { const r = await fetch(proxied, { cache: 'no-store' }); if (r.ok) return await r.text(); } catch {}
+      try { 
+        const r = await fetch(proxied, { cache: 'no-store' }); 
+        if (r.ok) {
+          const text = await r.text();
+          if (text && text.trim().length > 0) return text;
+        }
+      } catch {}
     }
+    
     throw new Error('Не удалось получить RSS: ' + url);
   }
 
   function parseRss(xmlText) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(xmlText, 'text/xml');
+    // Проверяем ошибки парсинга XML
+    const parserError = doc.querySelector('parsererror');
+    if (parserError) {
+      throw new Error('Ошибка парсинга XML: ' + (parserError.textContent || 'Неверный формат XML'));
+    }
     const itemNodes = Array.from(doc.querySelectorAll('item'));
     const items = itemNodes.map(node => ({
       title: textContent(node, 'title'),
@@ -424,6 +512,27 @@
   function formatTimeInOffset(dateUtc, offsetMin) { const shifted = new Date(dateUtc.getTime() + offsetMin * 60000); const hh = String(shifted.getUTCHours()).padStart(2, '0'); const mm = String(shifted.getUTCMinutes()).padStart(2, '0'); return `${hh}:${mm}`; }
 
   function resetTableBody() { dom.tbody.innerHTML = ''; }
+
+  function showLoading() {
+    if (dom.loadingIndicator) dom.loadingIndicator.style.display = 'flex';
+    if (dom.newsTable) dom.newsTable.style.display = 'none';
+  }
+
+  function hideLoading() {
+    if (dom.loadingIndicator) dom.loadingIndicator.style.display = 'none';
+    if (dom.newsTable) dom.newsTable.style.display = 'table';
+  }
+
+  function showError(message) {
+    if (dom.errorMessage) {
+      dom.errorMessage.textContent = message;
+      dom.errorMessage.style.display = 'block';
+    }
+  }
+
+  function hideError() {
+    if (dom.errorMessage) dom.errorMessage.style.display = 'none';
+  }
 
   function renderNextBatch(first = false) {
     const start = state.renderedRows;
