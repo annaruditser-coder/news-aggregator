@@ -84,6 +84,10 @@
       hideLoading();
       hideError();
       resetTableBody();
+      // Всегда показываем таблицу, даже если новостей нет
+      if (dom.newsTable) {
+        dom.newsTable.style.display = 'table';
+      }
       renderNextBatch(true);
       setupInfiniteScroll();
     })
@@ -270,6 +274,7 @@
     state.maxRows = Math.max(0, ...perSource.map(col => col.length));
     state.renderedRows = 0;
     console.log('Загружено источников:', perSource.length, 'Максимум строк:', state.maxRows);
+    console.log('Количество новостей по источникам:', perSource.map((col, i) => `${SOURCES[i].name}: ${col.length}`));
   }
 
   async function loadSource(src, tzOffsetMin, todayParts) {
@@ -525,9 +530,15 @@
     if (dom.loadingIndicator) dom.loadingIndicator.style.display = 'none';
     if (dom.newsTable) {
       dom.newsTable.style.display = 'table';
-      console.log('Таблица показана');
+      console.log('Таблица показана, строк:', state.maxRows);
     } else {
       console.error('Элемент news-table не найден!');
+      // Пытаемся найти элемент заново
+      const table = document.getElementById('news-table');
+      if (table) {
+        table.style.display = 'table';
+        console.log('Таблица найдена и показана');
+      }
     }
   }
 
@@ -545,6 +556,7 @@
   function renderNextBatch(first = false) {
     const start = state.renderedRows;
     const end = Math.min(state.maxRows, start + (first ? state.batchSize : 30));
+    console.log('Рендеринг строк:', start, 'до', end, 'из', state.maxRows);
     for (let rowIdx = start; rowIdx < end; rowIdx++) {
       const tr = document.createElement('tr');
       for (let c = 0; c < SOURCES.length; c++) {
