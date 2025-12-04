@@ -266,36 +266,52 @@
   }
 
   async function loadAllSources() {
-    const today = datePartsInOffset(nowInOffset(state.tzOffsetMin));
-    const perSource = await Promise.all(
-      SOURCES.map(src => loadSource(src, state.tzOffsetMin, today))
-    );
-    state.columns = perSource;
-    state.maxRows = Math.max(0, ...perSource.map(col => col.length));
-    state.renderedRows = 0;
-    console.log('Загружено источников:', perSource.length, 'Максимум строк:', state.maxRows);
-    console.log('Количество новостей по источникам:', perSource.map((col, i) => `${SOURCES[i].name}: ${col.length}`));
+    try {
+      console.log('Начало loadAllSources');
+      const today = datePartsInOffset(nowInOffset(state.tzOffsetMin));
+      console.log('Сегодня (в часовом поясе):', today);
+      console.log('Загрузка источников...');
+      const perSource = await Promise.all(
+        SOURCES.map(src => loadSource(src, state.tzOffsetMin, today))
+      );
+      console.log('Все источники загружены');
+      state.columns = perSource;
+      state.maxRows = Math.max(0, ...perSource.map(col => col.length));
+      state.renderedRows = 0;
+      console.log('Загружено источников:', perSource.length, 'Максимум строк:', state.maxRows);
+      console.log('Количество новостей по источникам:', perSource.map((col, i) => `${SOURCES[i].name}: ${col.length}`));
+    } catch (err) {
+      console.error('Критическая ошибка в loadAllSources:', err);
+      throw err;
+    }
   }
 
   async function loadSource(src, tzOffsetMin, todayParts) {
     try {
+      console.log(`Начало загрузки источника: ${src.name}`);
       if (src.id === 'mkchita') {
-        return await loadMkchitaSource(src, tzOffsetMin, todayParts);
+        const result = await loadMkchitaSource(src, tzOffsetMin, todayParts);
+        console.log(`Загружено из ${src.name}: ${result.length} новостей`);
+        return result;
       } else {
         const xmlText = await fetchWithCorsFallback(src.url);
+        console.log(`Получен XML от ${src.name}, длина: ${xmlText.length}`);
         const parsed = parseRss(xmlText);
+        console.log(`Распарсено элементов из ${src.name}: ${parsed.items.length}`);
         const items = parsed.items.map(i => ({
           title: i.title || '',
           link: i.link || '#',
           pubDate: i.pubDate ? new Date(i.pubDate) : null,
         })).filter(i => i.title && i.link && i.pubDate);
+        console.log(`Валидных элементов из ${src.name}: ${items.length}`);
         const filtered = items.filter(i => isSameDayInOffset(i.pubDate, tzOffsetMin, todayParts));
+        console.log(`Отфильтровано по дате из ${src.name}: ${filtered.length}`);
         filtered.sort((a, b) => b.pubDate - a.pubDate);
         return filtered;
       }
     } catch (err) {
       // Если не удалось загрузить источник, возвращаем пустой массив вместо падения
-      console.warn(`Не удалось загрузить источник ${src.name}:`, err);
+      console.error(`Ошибка загрузки источника ${src.name}:`, err);
       return [];
     }
   }
@@ -489,6 +505,10 @@
 
   function parseRss(xmlText) {
     try {
+      if (!xmlText || xmlText.trim().length === 0) {
+        console.warn('parseRss: получен пустой XML');
+        return { items: [] };
+      }
       const parser = new DOMParser();
       const doc = parser.parseFromString(xmlText, 'text/xml');
       // Проверяем ошибки парсинга XML только если есть явный parsererror
@@ -497,10 +517,13 @@
         // Проверяем, есть ли хотя бы один элемент item - если есть, игнорируем ошибку
         const itemNodes = Array.from(doc.querySelectorAll('item'));
         if (itemNodes.length === 0) {
-          throw new Error('Ошибка парсинга XML: ' + (parserError.textContent || 'Неверный формат XML'));
+          const errorText = parserError.textContent || 'Неверный формат XML';
+          console.error('parseRss: ошибка парсинга XML:', errorText.substring(0, 200));
+          throw new Error('Ошибка парсинга XML: ' + errorText);
         }
       }
       const itemNodes = Array.from(doc.querySelectorAll('item'));
+      console.log(`parseRss: найдено ${itemNodes.length} элементов item`);
       const items = itemNodes.map(node => ({
         title: textContent(node, 'title'),
         link: textContent(node, 'link'),
