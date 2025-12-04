@@ -31,14 +31,21 @@ app.get('/proxy', async (req, res) => {
   }
   
   try {
+    console.log(`[Proxy] Запрос к: ${url}`);
+    
     // Увеличиваем таймаут для медленных источников (node-fetch 2 использует timeout в миллисекундах)
     const upstream = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; News-Proxy/1.0)',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/rss+xml, application/xml, text/xml, text/html, */*',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
       },
       timeout: 25000, // 25 секунд для node-fetch 2
+      redirect: 'follow', // Следовать редиректам
+      follow: 5, // Максимум 5 редиректов
     });
+    
+    console.log(`[Proxy] Ответ: ${upstream.status} ${upstream.statusText}`);
     
     if (!upstream.ok) {
       // Возвращаем текст ошибки, а не JSON, чтобы клиент мог обработать
@@ -46,10 +53,27 @@ app.get('/proxy', async (req, res) => {
       return res.status(upstream.status).send(errorText);
     }
     
-    const buf = await upstream.buffer();
+    // Получаем контент с ограничением размера для больших HTML страниц
+    const contentType = upstream.headers.get('content-type') || '';
+    const isHtml = contentType.includes('text/html');
+    const maxSize = isHtml ? 5 * 1024 * 1024 : 10 * 1024 * 1024; // 5MB для HTML, 10MB для XML
+    
+    let buf;
+    try {
+      buf = await upstream.buffer();
+    } catch (bufferError) {
+      console.error(`[Proxy] Ошибка при чтении буфера:`, bufferError.message);
+      return res.status(500).send(`Error reading response: ${bufferError.message}`);
+    }
+    
+    if (buf.length > maxSize) {
+      console.log(`[Proxy] Файл слишком большой: ${buf.length} байт`);
+      return res.status(413).send('File too large');
+    }
+    
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'GET');
-    res.set('Content-Type', upstream.headers.get('content-type') || 'application/xml; charset=utf-8');
+    res.set('Content-Type', contentType || 'application/xml; charset=utf-8');
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.send(buf);
   } catch (e) {
@@ -61,8 +85,13 @@ app.get('/proxy', async (req, res) => {
     if (isTimeout) {
       return res.status(504).send('Request timeout');
     }
-    console.error('Proxy error:', e);
-    res.status(500).send('Internal server error');
+    console.error(`[Proxy] Ошибка для ${url}:`, {
+      message: e.message,
+      type: e.type,
+      name: e.name,
+      stack: e.stack?.substring(0, 500)
+    });
+    res.status(500).send(`Internal server error: ${e.message || 'Unknown error'}`);
   }
 });
 
