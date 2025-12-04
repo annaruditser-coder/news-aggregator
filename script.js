@@ -1,4 +1,5 @@
 (() => {
+  console.log('=== Скрипт начал выполнение ===');
   const SOURCES = [
     { id: 'chita', name: 'Chita.ru', url: 'https://www.chita.ru/rss-feeds/zen-news.xml' },
     { id: 'zabmedia', name: 'Забмедиа', url: 'https://zab.ru/rss/index.php' },
@@ -72,12 +73,19 @@
   }
 
   // Init
+  console.log('=== Начало инициализации ===');
   populateTimezoneSelect();
+  console.log('populateTimezoneSelect выполнено');
   updateHeaderDate();
+  console.log('updateHeaderDate выполнено');
   renderTableHead();
+  console.log('renderTableHead выполнено');
   buildPalette();
+  console.log('buildPalette выполнено');
   attachEvents();
+  console.log('attachEvents выполнено');
   showLoading();
+  console.log('showLoading выполнено, начинаю loadAllSources');
   loadAllSources()
     .then(() => {
       console.log('Загрузка завершена успешно');
