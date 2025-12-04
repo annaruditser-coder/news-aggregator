@@ -21,4 +21,20 @@
 - RSS парсинг
 - HTML парсинг для Забрабочего
 
+## Деплой
+
+⚠️ **ВАЖНО**: При изменении `script.js` или `styles.css` обязательно обновите файлы в папке `public/`!
+
+Подробные инструкции по деплою см. в [DEPLOYMENT.md](./DEPLOYMENT.md)
+
+Быстрая команда для обновления статических файлов:
+```bash
+./update-static.sh
+```
+
+Или вручную:
+```bash
+cp script.js public/script.js
+cp styles.css public/styles.css
+```
 
