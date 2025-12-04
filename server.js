@@ -8,19 +8,47 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(__dirname));
 
 // Генерируем версию на основе времени деплоя (или можно использовать git commit hash)
-const BUILD_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.substring(0, 7) || Date.now().toString(36);
+const BUILD_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.substring(0, 7) || 
+                       process.env.VERCEL_GIT_COMMIT_REF || 
+                       `v${Date.now().toString(36)}`;
+
+console.log(`[Server] BUILD_VERSION: ${BUILD_VERSION}`);
 
 // Явный маршрут для главной страницы
 app.get('/', (req, res) => {
-  // Читаем HTML и заменяем пути к статическим файлам на версионированные
-  const fs = require('fs');
-  const path = require('path');
-  let html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  // Добавляем версию к script.js и styles.css
-  html = html.replace(/href="\/styles\.css"/g, `href="/styles.css?v=${BUILD_VERSION}"`);
-  html = html.replace(/src="\/script\.js"/g, `src="/script.js?v=${BUILD_VERSION}"`);
-  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.send(html);
+  try {
+    // Читаем HTML и заменяем пути к статическим файлам на версионированные
+    const fs = require('fs');
+    const path = require('path');
+    const htmlPath = path.join(__dirname, 'index.html');
+    
+    if (!fs.existsSync(htmlPath)) {
+      console.error(`[Server] index.html не найден по пути: ${htmlPath}`);
+      return res.status(500).send('index.html not found');
+    }
+    
+    let html = fs.readFileSync(htmlPath, 'utf8');
+    console.log(`[Server] HTML загружен, длина: ${html.length}, версия: ${BUILD_VERSION}`);
+    
+    // Добавляем версию к script.js и styles.css (более гибкое регулярное выражение)
+    html = html.replace(/(href=["'])\/styles\.css(["'])/g, `$1/styles.css?v=${BUILD_VERSION}$2`);
+    html = html.replace(/(src=["'])\/script\.js(["'])/g, `$1/script.js?v=${BUILD_VERSION}$2`);
+    
+    // Проверяем, что замена произошла
+    if (!html.includes(`script.js?v=${BUILD_VERSION}`)) {
+      console.warn(`[Server] Предупреждение: версия не добавлена к script.js`);
+    }
+    if (!html.includes(`styles.css?v=${BUILD_VERSION}`)) {
+      console.warn(`[Server] Предупреждение: версия не добавлена к styles.css`);
+    }
+    
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('[Server] Ошибка при обработке главной страницы:', error);
+    res.status(500).send(`Error: ${error.message}`);
+  }
 });
 
 // Прокси для CORS
