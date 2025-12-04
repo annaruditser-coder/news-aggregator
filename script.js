@@ -80,6 +80,7 @@
   showLoading();
   loadAllSources()
     .then(() => {
+      console.log('Загрузка завершена успешно');
       hideLoading();
       hideError();
       resetTableBody();
@@ -87,9 +88,9 @@
       setupInfiniteScroll();
     })
     .catch((err) => {
+      console.error('Ошибка загрузки новостей:', err);
       hideLoading();
       showError('Не удалось загрузить новости. Попробуйте обновить страницу.');
-      console.error('Ошибка загрузки новостей:', err);
     });
 
   function attachEvents() {
@@ -268,6 +269,7 @@
     state.columns = perSource;
     state.maxRows = Math.max(0, ...perSource.map(col => col.length));
     state.renderedRows = 0;
+    console.log('Загружено источников:', perSource.length, 'Максимум строк:', state.maxRows);
   }
 
   async function loadSource(src, tzOffsetMin, todayParts) {
@@ -297,10 +299,6 @@
     const htmlText = await fetchWithCorsFallback(src.url);
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlText, 'text/html');
-    // Проверяем, что получили валидный HTML (не страницу с ошибкой)
-    if (!doc.body || doc.body.children.length === 0) {
-      return [];
-    }
 
     const groups = Array.from(doc.querySelectorAll('.news-listing__day-group'));
     const items = [];
@@ -444,10 +442,8 @@
         clearTimeout(timeoutId);
         if (r.ok) {
           const text = await r.text();
-          // Проверяем, что получили валидный контент (не HTML страницу с ошибкой)
-          if (text && text.trim().length > 0) {
-            return text;
-          }
+          // Возвращаем текст, даже если он пустой - пусть парсер разберется
+          return text;
         }
         // Если не OK или пустой ответ, пробуем другие методы только на последней попытке
         if (attempt === retries) break;
@@ -468,8 +464,7 @@
     try {
       const r = await fetch(url, { cache: 'no-store' });
       if (r.ok) {
-        const text = await r.text();
-        if (text && text.trim().length > 0) return text;
+        return await r.text();
       }
     } catch {}
     
@@ -479,8 +474,7 @@
       try { 
         const r = await fetch(proxied, { cache: 'no-store' }); 
         if (r.ok) {
-          const text = await r.text();
-          if (text && text.trim().length > 0) return text;
+          return await r.text();
         }
       } catch {}
     }
@@ -489,20 +483,29 @@
   }
 
   function parseRss(xmlText) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlText, 'text/xml');
-    // Проверяем ошибки парсинга XML
-    const parserError = doc.querySelector('parsererror');
-    if (parserError) {
-      throw new Error('Ошибка парсинга XML: ' + (parserError.textContent || 'Неверный формат XML'));
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xmlText, 'text/xml');
+      // Проверяем ошибки парсинга XML только если есть явный parsererror
+      const parserError = doc.querySelector('parsererror');
+      if (parserError) {
+        // Проверяем, есть ли хотя бы один элемент item - если есть, игнорируем ошибку
+        const itemNodes = Array.from(doc.querySelectorAll('item'));
+        if (itemNodes.length === 0) {
+          throw new Error('Ошибка парсинга XML: ' + (parserError.textContent || 'Неверный формат XML'));
+        }
+      }
+      const itemNodes = Array.from(doc.querySelectorAll('item'));
+      const items = itemNodes.map(node => ({
+        title: textContent(node, 'title'),
+        link: textContent(node, 'link'),
+        pubDate: textContent(node, 'pubDate'),
+      }));
+      return { items };
+    } catch (err) {
+      console.error('Ошибка в parseRss:', err);
+      throw err;
     }
-    const itemNodes = Array.from(doc.querySelectorAll('item'));
-    const items = itemNodes.map(node => ({
-      title: textContent(node, 'title'),
-      link: textContent(node, 'link'),
-      pubDate: textContent(node, 'pubDate'),
-    }));
-    return { items };
   }
   function textContent(parent, sel) { const n = parent.querySelector(sel); return n ? (n.textContent || '').trim() : ''; }
 
@@ -520,7 +523,12 @@
 
   function hideLoading() {
     if (dom.loadingIndicator) dom.loadingIndicator.style.display = 'none';
-    if (dom.newsTable) dom.newsTable.style.display = 'table';
+    if (dom.newsTable) {
+      dom.newsTable.style.display = 'table';
+      console.log('Таблица показана');
+    } else {
+      console.error('Элемент news-table не найден!');
+    }
   }
 
   function showError(message) {
