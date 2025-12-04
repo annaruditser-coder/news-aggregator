@@ -1,4 +1,5 @@
 (() => {
+  console.log('=== Скрипт начал выполнение ===');
   const SOURCES = [
     { id: 'chita', name: 'Chita.ru', url: 'https://www.chita.ru/rss-feeds/zen-news.xml' },
     { id: 'zabmedia', name: 'Забмедиа', url: 'https://zab.ru/rss/index.php' },
@@ -19,6 +20,9 @@
     cellTpl: /** @type {HTMLTemplateElement} */ (document.getElementById('news-cell-template')),
     paletteColors: document.getElementById('palette-colors'),
     paletteClear: document.getElementById('palette-clear'),
+    loadingIndicator: document.getElementById('loading-indicator'),
+    errorMessage: document.getElementById('error-message'),
+    newsTable: document.getElementById('news-table'),
   };
 
   let state = {
@@ -69,34 +73,75 @@
   }
 
   // Init
+  console.log('=== Начало инициализации ===');
   populateTimezoneSelect();
+  console.log('populateTimezoneSelect выполнено');
   updateHeaderDate();
+  console.log('updateHeaderDate выполнено');
   renderTableHead();
+  console.log('renderTableHead выполнено');
   buildPalette();
+  console.log('buildPalette выполнено');
   attachEvents();
-  loadAllSources().then(() => {
-    resetTableBody();
-    renderNextBatch(true);
-    setupInfiniteScroll();
-  });
+  console.log('attachEvents выполнено');
+  showLoading();
+  console.log('showLoading выполнено, начинаю loadAllSources');
+  loadAllSources()
+    .then(() => {
+      console.log('Загрузка завершена успешно');
+      hideLoading();
+      hideError();
+      resetTableBody();
+      // Всегда показываем таблицу, даже если новостей нет
+      if (dom.newsTable) {
+        dom.newsTable.style.display = 'table';
+      }
+      renderNextBatch(true);
+      setupInfiniteScroll();
+    })
+    .catch((err) => {
+      console.error('Ошибка загрузки новостей:', err);
+      hideLoading();
+      showError('Не удалось загрузить новости. Попробуйте обновить страницу.');
+    });
 
   function attachEvents() {
     dom.tzSelect.addEventListener('change', () => {
       state.tzOffsetMin = Number(dom.tzSelect.value);
       saveTzOffset(state.tzOffsetMin);
       updateHeaderDate();
-      loadAllSources().then(() => {
-        resetTableBody();
-        renderNextBatch(true);
-      });
+      showLoading();
+      hideError();
+      loadAllSources()
+        .then(() => {
+          hideLoading();
+          resetTableBody();
+          renderNextBatch(true);
+        })
+        .catch((err) => {
+          hideLoading();
+          showError('Не удалось загрузить новости. Попробуйте еще раз.');
+          console.error('Ошибка загрузки новостей:', err);
+        });
     });
     dom.refreshBtn.addEventListener('click', () => {
       dom.refreshBtn.disabled = true;
-      loadAllSources().finally(() => {
-        resetTableBody();
-        renderNextBatch(true);
-        dom.refreshBtn.disabled = false;
-      });
+      showLoading();
+      hideError();
+      loadAllSources()
+        .then(() => {
+          hideLoading();
+          resetTableBody();
+          renderNextBatch(true);
+        })
+        .catch((err) => {
+          hideLoading();
+          showError('Не удалось загрузить новости. Попробуйте еще раз.');
+          console.error('Ошибка загрузки новостей:', err);
+        })
+        .finally(() => {
+          dom.refreshBtn.disabled = false;
+        });
     });
     dom.paletteClear?.addEventListener('click', () => {
       state.selectedColor = null;
@@ -229,29 +274,53 @@
   }
 
   async function loadAllSources() {
-    const today = datePartsInOffset(nowInOffset(state.tzOffsetMin));
-    const perSource = await Promise.all(
-      SOURCES.map(src => loadSource(src, state.tzOffsetMin, today))
-    );
-    state.columns = perSource;
-    state.maxRows = Math.max(0, ...perSource.map(col => col.length));
-    state.renderedRows = 0;
+    try {
+      console.log('Начало loadAllSources');
+      const today = datePartsInOffset(nowInOffset(state.tzOffsetMin));
+      console.log('Сегодня (в часовом поясе):', today);
+      console.log('Загрузка источников...');
+      const perSource = await Promise.all(
+        SOURCES.map(src => loadSource(src, state.tzOffsetMin, today))
+      );
+      console.log('Все источники загружены');
+      state.columns = perSource;
+      state.maxRows = Math.max(0, ...perSource.map(col => col.length));
+      state.renderedRows = 0;
+      console.log('Загружено источников:', perSource.length, 'Максимум строк:', state.maxRows);
+      console.log('Количество новостей по источникам:', perSource.map((col, i) => `${SOURCES[i].name}: ${col.length}`));
+    } catch (err) {
+      console.error('Критическая ошибка в loadAllSources:', err);
+      throw err;
+    }
   }
 
   async function loadSource(src, tzOffsetMin, todayParts) {
-    if (src.id === 'mkchita') {
-      return await loadMkchitaSource(src, tzOffsetMin, todayParts);
-    } else {
-      const xmlText = await fetchWithCorsFallback(src.url);
-      const parsed = parseRss(xmlText);
-      const items = parsed.items.map(i => ({
-        title: i.title || '',
-        link: i.link || '#',
-        pubDate: i.pubDate ? new Date(i.pubDate) : null,
-      })).filter(i => i.title && i.link && i.pubDate);
-      const filtered = items.filter(i => isSameDayInOffset(i.pubDate, tzOffsetMin, todayParts));
-      filtered.sort((a, b) => b.pubDate - a.pubDate);
-      return filtered;
+    try {
+      console.log(`Начало загрузки источника: ${src.name}`);
+      if (src.id === 'mkchita') {
+        const result = await loadMkchitaSource(src, tzOffsetMin, todayParts);
+        console.log(`Загружено из ${src.name}: ${result.length} новостей`);
+        return result;
+      } else {
+        const xmlText = await fetchWithCorsFallback(src.url);
+        console.log(`Получен XML от ${src.name}, длина: ${xmlText.length}`);
+        const parsed = parseRss(xmlText);
+        console.log(`Распарсено элементов из ${src.name}: ${parsed.items.length}`);
+        const items = parsed.items.map(i => ({
+          title: i.title || '',
+          link: i.link || '#',
+          pubDate: i.pubDate ? new Date(i.pubDate) : null,
+        })).filter(i => i.title && i.link && i.pubDate);
+        console.log(`Валидных элементов из ${src.name}: ${items.length}`);
+        const filtered = items.filter(i => isSameDayInOffset(i.pubDate, tzOffsetMin, todayParts));
+        console.log(`Отфильтровано по дате из ${src.name}: ${filtered.length}`);
+        filtered.sort((a, b) => b.pubDate - a.pubDate);
+        return filtered;
+      }
+    } catch (err) {
+      // Если не удалось загрузить источник, возвращаем пустой массив вместо падения
+      console.error(`Ошибка загрузки источника ${src.name}:`, err);
+      return [];
     }
   }
 
@@ -260,66 +329,26 @@
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlText, 'text/html');
 
+    const groups = Array.from(doc.querySelectorAll('.news-listing__day-group'));
     const items = [];
-    const nowChita = nowInOffset(9 * 60); // Чита UTC+9
-    const currentYear = nowChita.getUTCFullYear();
-    const todayChitaParts = { y: nowChita.getUTCFullYear(), m: nowChita.getUTCMonth() + 1, d: nowChita.getUTCDate() };
 
-    // Найдём все заголовки дат и собираем элементы до следующего заголовка даты
-    const dateHeads = Array.from(doc.querySelectorAll('h2.news-listing__day-date'));
-    if (dateHeads.length) {
-      for (let i = 0; i < dateHeads.length; i++) {
-        const head = dateHeads[i];
-        const nextHead = dateHeads[i + 1] || null;
-        const dateText = (head.textContent || '').trim();
-        const dparts = parseRuDate(dateText, currentYear) || { y: currentYear, m: nowChita.getUTCMonth() + 1, d: nowChita.getUTCDate() };
+    const now = nowInOffset(tzOffsetMin);
+    const currentYear = now.getUTCFullYear();
 
-        let node = head.nextElementSibling;
-        while (node && node !== nextHead) {
-          // Собираем все li.news-listing__item в поддереве между заголовками
-          if (node.querySelectorAll) {
-            const list = node.matches('li.news-listing__item') ? [node] : Array.from(node.querySelectorAll('li.news-listing__item'));
-            for (const article of list) {
-              const linkEl = article.querySelector('a.news-listing__item-link');
-              const timeEl = article.querySelector('span.news-listing__item-time');
-              const titleEl = article.querySelector('h3.news-listing__item-title');
-              if (!linkEl || !timeEl || !titleEl) continue;
+    for (const group of groups) {
+      const dateEl = group.querySelector('.news-listing__day-date');
+      if (!dateEl) continue;
+      const dateText = (dateEl.textContent || '').trim();
+      const dateParts = parseRuDate(dateText, currentYear);
+      if (!dateParts) continue;
 
-              const rawHref = linkEl.getAttribute('href') || '';
-              const link = (() => { try { const u = new URL(rawHref, src.url); u.hash=''; return u.href; } catch { return '#'; } })();
-              const rawTitle = (titleEl.textContent || '').trim();
-              const timeText = (timeEl.textContent || '').trim();
-              const tm = timeText.match(/^(\d{1,2}):(\d{2})$/);
-              if (!tm) continue;
-              const hh = Number(tm[1]);
-              const mm = Number(tm[2]);
-
-              // Чита UTC+9 -> UTC
-              const utcMs = Date.UTC(
-                dparts.y,
-                dparts.m - 1,
-                dparts.d,
-                hh - 9,
-                mm,
-                0
-              );
-              const pubDate = new Date(utcMs);
-              if (!rawTitle || link === '#' || isNaN(pubDate.getTime())) continue;
-              items.push({ title: rawTitle, link, pubDate });
-            }
-          }
-          node = node.nextElementSibling;
-        }
-      }
-    } else {
-      // Fallback: нет заголовков — собираем все элементы и считаем сегодняшнюю дату Читы
-      const dparts = { y: nowChita.getUTCFullYear(), m: nowChita.getUTCMonth() + 1, d: nowChita.getUTCDate() };
-      const articles = Array.from(doc.querySelectorAll('li.news-listing__item'));
+      const articles = Array.from(group.querySelectorAll('li.news-listing__item'));
       for (const article of articles) {
         const linkEl = article.querySelector('a.news-listing__item-link');
         const timeEl = article.querySelector('span.news-listing__item-time');
         const titleEl = article.querySelector('h3.news-listing__item-title');
         if (!linkEl || !timeEl || !titleEl) continue;
+
         const rawHref = linkEl.getAttribute('href') || '';
         const link = (() => { try { const u = new URL(rawHref, src.url); u.hash=''; return u.href; } catch { return '#'; } })();
         const rawTitle = (titleEl.textContent || '').trim();
@@ -328,7 +357,16 @@
         if (!tm) continue;
         const hh = Number(tm[1]);
         const mm = Number(tm[2]);
-        const utcMs = Date.UTC(dparts.y, dparts.m - 1, dparts.d, hh - 9, mm, 0);
+
+        // Локальное время сайта = Чита (UTC+9). Переводим в UTC, вычитая 9 часов
+        const utcMs = Date.UTC(
+          dateParts.y,
+          dateParts.m - 1,
+          dateParts.d,
+          hh - 9,
+          mm,
+          0
+        );
         const pubDate = new Date(utcMs);
         if (!rawTitle || link === '#' || isNaN(pubDate.getTime())) continue;
         items.push({ title: rawTitle, link, pubDate });
@@ -352,7 +390,7 @@
 
   function parseRuDate(text, fallbackYear) {
     const t = text.toLowerCase().replace(/\s+/g, ' ').trim();
-    // dd.mm.yyyy или dd.mm
+    // Пробуем dd.mm.yyyy или dd.mm
     let m = t.match(/^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?/);
     if (m) {
       const d = Number(m[1]);
@@ -360,7 +398,7 @@
       const y = m[3] ? Number(m[3].length === 2 ? ('20' + m[3]) : m[3]) : fallbackYear;
       if (d && mo) return { y, m: mo, d };
     }
-    // 20 октября 2025 или 20 октября
+    // Пробуем "20 октября 2025" или "20 октября"
     const months = {
       'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
       'июля': 7, 'августа': 8, 'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12
@@ -375,44 +413,135 @@
     return null;
   }
 
-  async function fetchWithCorsFallback(url) {
-    // helper: decode via TextDecoder respecting windows-1251 when indicated
-    async function decodeResponse(r) {
-      const ct = (r.headers.get('content-type') || '').toLowerCase();
-      const buf = await r.arrayBuffer();
-      const utf8 = new TextDecoder('utf-8').decode(buf);
-      const decl = utf8.slice(0, 200).toLowerCase();
-      const is1251 = ct.includes('windows-1251') || decl.includes('encoding="windows-1251"') || decl.includes('encoding=\'windows-1251\'');
-      if (is1251 && typeof TextDecoder !== 'undefined') {
-        try { return new TextDecoder('windows-1251').decode(buf); } catch {}
-      }
-      return utf8;
+  async function loadZabrabSource(src, tzOffsetMin, todayParts) {
+    const htmlText = await fetchWithCorsFallback(src.url);
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
+    const articles = Array.from(doc.querySelectorAll('.article-item__block, .article-item'));
+    const items = [];
+    for (const article of articles) {
+      let titleAnchor = article.querySelector('a.article-item__title') || article.querySelector('.article-item__title a');
+      const dateEl = article.querySelector('.article-item__info-date');
+      if (!titleAnchor || !dateEl) continue;
+      const rawTitle = (titleAnchor.textContent || '').trim();
+      const rawHref = titleAnchor.getAttribute('href') || '';
+      const link = (() => { try { const u = new URL(rawHref, src.url); u.hash=''; return u.href; } catch { return '#'; } })();
+      const dateText = (dateEl.textContent || '').trim();
+      const m = dateText.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})\s*(?:в|\/)?\s*(\d{1,2}):(\d{1,2})/);
+      if (!m) continue;
+      const [, d, mo, y, h, mi] = m;
+      // Преобразуем локальное время сайта (UTC+9) в UTC timestamp
+      const utcMs = Date.UTC(
+        Number(y),
+        Number(mo) - 1,
+        Number(d),
+        Number(h) - 9,
+        Number(mi),
+        0
+      );
+      const pubDate = new Date(utcMs);
+      if (!rawTitle || link === '#' || isNaN(pubDate.getTime())) continue;
+      items.push({ title: rawTitle, link, pubDate });
     }
-    try {
-      const r = await fetch(`/proxy?url=${encodeURIComponent(url)}`, { cache: 'no-store' });
-      if (r.ok) return await decodeResponse(r);
-    } catch {}
+    // Дедупликация по ссылке
+    const uniqueItems = [];
+    const seenLinks = new Set();
+    for (const item of items) {
+      if (!seenLinks.has(item.link)) {
+        seenLinks.add(item.link);
+        uniqueItems.push(item);
+      }
+    }
+    
+    const filtered = uniqueItems.filter(i => isSameDayInOffset(i.pubDate, tzOffsetMin, todayParts));
+    filtered.sort((a, b) => b.pubDate - a.pubDate);
+    return filtered;
+  }
+
+  async function fetchWithCorsFallback(url, retries = 2) {
+    // Сначала пробуем через наш прокси с таймаутом
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 секунд таймаут
+        const r = await fetch(`/proxy?url=${encodeURIComponent(url)}`, { 
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (r.ok) {
+          const text = await r.text();
+          // Возвращаем текст, даже если он пустой - пусть парсер разберется
+          return text;
+        }
+        // Если не OK или пустой ответ, пробуем другие методы только на последней попытке
+        if (attempt === retries) break;
+        // Ждем перед повторной попыткой (экспоненциальная задержка)
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      } catch (err) {
+        // Если это не последняя попытка, ждем и пробуем снова
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          continue;
+        }
+        // На последней попытке пробуем альтернативные методы
+        break;
+      }
+    }
+    
+    // Если все попытки через прокси неудачны, пробуем прямые запросы
     try {
       const r = await fetch(url, { cache: 'no-store' });
-      if (r.ok) return await decodeResponse(r);
+      if (r.ok) {
+        return await r.text();
+      }
     } catch {}
+    
+    // Пробуем публичные прокси
     for (const wrap of PUBLIC_PROXIES) {
       const proxied = wrap(url);
-      try { const r = await fetch(proxied, { cache: 'no-store' }); if (r.ok) return await decodeResponse(r); } catch {}
+      try { 
+        const r = await fetch(proxied, { cache: 'no-store' }); 
+        if (r.ok) {
+          return await r.text();
+        }
+      } catch {}
     }
+    
     throw new Error('Не удалось получить RSS: ' + url);
   }
 
   function parseRss(xmlText) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlText, 'text/xml');
-    const itemNodes = Array.from(doc.querySelectorAll('item'));
-    const items = itemNodes.map(node => ({
-      title: textContent(node, 'title'),
-      link: textContent(node, 'link'),
-      pubDate: textContent(node, 'pubDate'),
-    }));
-    return { items };
+    try {
+      if (!xmlText || xmlText.trim().length === 0) {
+        console.warn('parseRss: получен пустой XML');
+        return { items: [] };
+      }
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xmlText, 'text/xml');
+      // Проверяем ошибки парсинга XML только если есть явный parsererror
+      const parserError = doc.querySelector('parsererror');
+      if (parserError) {
+        // Проверяем, есть ли хотя бы один элемент item - если есть, игнорируем ошибку
+        const itemNodes = Array.from(doc.querySelectorAll('item'));
+        if (itemNodes.length === 0) {
+          const errorText = parserError.textContent || 'Неверный формат XML';
+          console.error('parseRss: ошибка парсинга XML:', errorText.substring(0, 200));
+          throw new Error('Ошибка парсинга XML: ' + errorText);
+        }
+      }
+      const itemNodes = Array.from(doc.querySelectorAll('item'));
+      console.log(`parseRss: найдено ${itemNodes.length} элементов item`);
+      const items = itemNodes.map(node => ({
+        title: textContent(node, 'title'),
+        link: textContent(node, 'link'),
+        pubDate: textContent(node, 'pubDate'),
+      }));
+      return { items };
+    } catch (err) {
+      console.error('Ошибка в parseRss:', err);
+      throw err;
+    }
   }
   function textContent(parent, sel) { const n = parent.querySelector(sel); return n ? (n.textContent || '').trim() : ''; }
 
@@ -423,9 +552,42 @@
 
   function resetTableBody() { dom.tbody.innerHTML = ''; }
 
+  function showLoading() {
+    if (dom.loadingIndicator) dom.loadingIndicator.style.display = 'flex';
+    if (dom.newsTable) dom.newsTable.style.display = 'none';
+  }
+
+  function hideLoading() {
+    if (dom.loadingIndicator) dom.loadingIndicator.style.display = 'none';
+    if (dom.newsTable) {
+      dom.newsTable.style.display = 'table';
+      console.log('Таблица показана, строк:', state.maxRows);
+    } else {
+      console.error('Элемент news-table не найден!');
+      // Пытаемся найти элемент заново
+      const table = document.getElementById('news-table');
+      if (table) {
+        table.style.display = 'table';
+        console.log('Таблица найдена и показана');
+      }
+    }
+  }
+
+  function showError(message) {
+    if (dom.errorMessage) {
+      dom.errorMessage.textContent = message;
+      dom.errorMessage.style.display = 'block';
+    }
+  }
+
+  function hideError() {
+    if (dom.errorMessage) dom.errorMessage.style.display = 'none';
+  }
+
   function renderNextBatch(first = false) {
     const start = state.renderedRows;
     const end = Math.min(state.maxRows, start + (first ? state.batchSize : 30));
+    console.log('Рендеринг строк:', start, 'до', end, 'из', state.maxRows);
     for (let rowIdx = start; rowIdx < end; rowIdx++) {
       const tr = document.createElement('tr');
       for (let c = 0; c < SOURCES.length; c++) {

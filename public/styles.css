@@ -19,16 +19,51 @@ button:hover { border-color: var(--accent); cursor: pointer; }
 
 .main { display: grid; grid-template-columns: 1fr 56px; gap: 8px; align-items: start; }
 .table-wrapper { padding: 12px 16px; }
-.news-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow); position: relative; table-layout: fixed; }
+.news-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow); position: relative; }
 /* отключаем прилипающую шапку, чтобы первая строка всегда была полностью видна */
 .news-table thead { position: static; background: var(--bg); }
 .news-table thead th { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-weight: 600; }
-.news-table tbody td { vertical-align: top; border-bottom: 1px solid #eef2f6; padding: 12px; background-clip: padding-box; }
+.news-table tbody td { vertical-align: top; border-bottom: 1px solid #eef2f6; padding: 12px; width: 25%; background-clip: padding-box; }
 .news-item { display: flex; flex-direction: column; gap: 6px; }
 .news-title { color: #0f172a; text-decoration: none; }
 .news-title:hover { color: var(--accent); text-decoration: underline; }
 .news-time { color: var(--muted); font-size: 12px; }
 .sentinel { height: 24px; }
+
+/* Loading indicator */
+.loading-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.error-message {
+  padding: 20px;
+  margin: 20px;
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 8px;
+  color: #c33;
+  text-align: center;
+}
 
 /* Palette - вертикальная колонка */
 .palette { position: sticky; top: calc(var(--topbar-h) + 8px); align-self: start; margin-right: 8px; margin-top: 12px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 8px; box-shadow: var(--shadow); height: calc(100vh - 80px); display: flex; flex-direction: column; }
