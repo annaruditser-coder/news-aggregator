@@ -13,11 +13,17 @@
   "routes": [
     {
       "src": "/styles.css",
-      "dest": "/public/styles.css"
+      "dest": "/public/styles.css",
+      "headers": {
+        "Cache-Control": "public, max-age=0, must-revalidate"
+      }
     },
     {
       "src": "/script.js", 
-      "dest": "/public/script.js"
+      "dest": "/public/script.js",
+      "headers": {
+        "Cache-Control": "public, max-age=0, must-revalidate"
+      }
     },
     {
       "src": "/proxy",
